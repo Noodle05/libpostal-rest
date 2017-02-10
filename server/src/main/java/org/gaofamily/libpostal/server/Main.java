@@ -21,7 +21,7 @@ public class Main {
         logger.info("Starting libpostal web service...");
         logger.info("Initialize libpostal");
         // AddressParser will need to load JNI library, so init it before
-        // we start to make sure it will fail if load JNI library failed.
+        // we start
         AddressParser.getInstance();
         AddressExpander.getInstance();
 
@@ -30,7 +30,6 @@ public class Main {
         logger.info("Initial jetty server.");
         final List<ServiceServer> servers = new ArrayList<>(2);
         ServiceServer resetServer = new NettyRestServer();
-//        ServiceServer jettyServer = new JettyServer(numberOfThreads);
         servers.add(resetServer);
         ServiceServer tcpServer = new NettyServer(numberOfThreads);
         servers.add(tcpServer);

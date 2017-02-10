@@ -56,14 +56,14 @@ public class NettyServer extends AbstractServiceServer {
         try {
             port = Integer.parseInt(portStr);
         } catch (NumberFormatException e) {
-            logger.error("Invalid port value: " + portStr, e);
+            logger.error("Invalid TCP port value: {}", portStr, e);
             System.exit(1);
         }
         if (port <= 0 || port > 65536) {
-            logger.error("Invalid port value: " + port);
+            logger.error("Invalid TCP port value: {}", port);
             System.exit(1);
         }
-        logger.info("Listening on port {} ...", port);
+        logger.info("Starting TCP API server on port {} ...", port);
 
         bossGroup = new NioEventLoopGroup(1, threadPool);
         workerGroup = new NioEventLoopGroup(numberOfThread - 1, threadPool);
@@ -80,10 +80,12 @@ public class NettyServer extends AbstractServiceServer {
             logger.error("Cannot bind to port: {}", port, e);
             throw new RuntimeException(e);
         }
+        logger.info("TCP API server started.");
     }
 
     @Override
     protected void internalStop() {
+        logger.info("Stopping TCP API server ...");
         List<Future<?>> futures = new ArrayList<>(3);
         if (future != null) {
             logger.info("Close channel");
@@ -107,5 +109,6 @@ public class NettyServer extends AbstractServiceServer {
         if (!threadPool.isShutdown()) {
             threadPool.shutdown();
         }
+        logger.info("TCP API server stopped.");
     }
 }

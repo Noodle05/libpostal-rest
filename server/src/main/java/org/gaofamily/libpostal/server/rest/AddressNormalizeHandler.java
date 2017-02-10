@@ -26,7 +26,7 @@ public class AddressNormalizeHandler {
 
     @POST
     public List<NormalizeResult> normalizeAddress(List<AddressRequest> requests) {
-        logger.debug("Get parse address request: {}", requests);
+        logger.debug("Get normalize address request: {}", requests);
         AddressService addressService = AddressServiceFactory.getAddressService();
 
         return addressService.normalizeAddress(requests);
