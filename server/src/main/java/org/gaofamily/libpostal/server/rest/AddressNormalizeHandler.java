@@ -1,7 +1,5 @@
 package org.gaofamily.libpostal.server.rest;
 
-import org.gaofamily.libpostal.model.AddressRequest;
-import org.gaofamily.libpostal.model.NormalizeResult;
 import org.gaofamily.libpostal.service.AddressService;
 import org.gaofamily.libpostal.service.AddressServiceFactory;
 import org.slf4j.Logger;
@@ -13,6 +11,7 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Wei Gao
@@ -25,7 +24,7 @@ public class AddressNormalizeHandler {
     private static final Logger logger = LoggerFactory.getLogger(AddressNormalizeHandler.class);
 
     @POST
-    public List<NormalizeResult> normalizeAddress(List<AddressRequest> requests) {
+    public Map<String, List<String>> normalizeAddress(Map<String, String> requests) {
         logger.debug("Get normalize address request: {}", requests);
         AddressService addressService = AddressServiceFactory.getAddressService();
 

@@ -1,16 +1,15 @@
 package org.gaofamily.libpostal.client;
 
 import org.gaofamily.libpostal.client.netty.NettyAddressClient;
-import org.gaofamily.libpostal.model.AddressRequest;
-import org.gaofamily.libpostal.model.NormalizeResult;
-import org.gaofamily.libpostal.model.ParseResult;
 import org.apache.commons.lang3.time.StopWatch;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 
 /**
@@ -24,12 +23,9 @@ public class NettyAddressClientTest {
     @Test(groups = {"integration"})
     public void testParsePositive() throws InterruptedException, UnknownHostException {
         try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
-            List<AddressRequest> requests = new ArrayList<>(1);
-            AddressRequest item = new AddressRequest();
-            item.setId("1");
-            item.setAddress("900 Concar Dr, San Mateo, CA 94402 USA");
-            requests.add(item);
-            List<ParseResult> result = client.parseAddress(requests);
+            Map<String, String> requests = new HashMap<>(1);
+            requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
+            Map<String, Map<String, String>> result = client.parseAddress(requests);
             Assert.assertNotNull(result);
             Assert.assertEquals(1, result.size());
         }
@@ -38,12 +34,9 @@ public class NettyAddressClientTest {
     @Test(groups = {"integration"})
     public void testNormalizePositive() throws InterruptedException, UnknownHostException {
         try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
-            List<AddressRequest> requests = new ArrayList<>(1);
-            AddressRequest item = new AddressRequest();
-            item.setId("1");
-            item.setAddress("900 Concar Dr, San Mateo, CA 94402 USA");
-            requests.add(item);
-            List<NormalizeResult> result = client.normalizeAddress(requests);
+            Map<String, String> requests = new HashMap<>(1);
+            requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
+            Map<String, List<String>> result = client.normalizeAddress(requests);
             Assert.assertNotNull(result);
             Assert.assertEquals(1, result.size());
         }
@@ -52,14 +45,11 @@ public class NettyAddressClientTest {
     @Test(groups = {"integration"})
     public void testLargePacket() throws UnknownHostException, InterruptedException {
         try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
-            List<AddressRequest> requests = new ArrayList<>(1);
-            for (int i = 0; i < 20; i ++) {
-                AddressRequest item = new AddressRequest();
-                item.setId("1");
-                item.setAddress("900 Concar Dr, San Mateo, CA 94402 USA");
-                requests.add(item);
+            Map<String, String> requests = new HashMap<>(20);
+            for (int i = 0; i < 20; i++) {
+                requests.put(Integer.toString(i), "900 Concar Dr, San Mateo, CA 94402 USA");
             }
-            List<ParseResult> result = client.parseAddress(requests);
+            Map<String, Map<String, String>> result = client.parseAddress(requests);
             Assert.assertNotNull(result);
         }
     }
@@ -69,42 +59,30 @@ public class NettyAddressClientTest {
         int number = 4;
         int numberOfWorker = 150;
         ExecutorService threadPool = Executors.newFixedThreadPool(numberOfWorker);
-        List<Callable<List<ParseResult>>> workers = new ArrayList<>(numberOfWorker);
-        try (NettyAddressClient client = new NettyAddressClient(host, port, number, null)) {
+        List<Callable<Map<String, Map<String, String>>>> workers = new ArrayList<>(numberOfWorker);
+        try (NettyAddressClient client = new NettyAddressClient(host, port, number, number, null)) {
             for (int i = 0; i < numberOfWorker; i++) {
                 workers.add(() -> {
-                    List<ParseResult> result = new ArrayList<>();
-                    List<AddressRequest> requests = new ArrayList<>(1);
-                    AddressRequest item = new AddressRequest();
-                    item.setId("1");
-                    item.setAddress("900 Concar Dr, San Mateo, CA 94402 USA");
-                    requests.add(item);
-                    item = new AddressRequest();
-                    item.setId("2");
-                    item.setAddress("1 Market St #300, San Francisco, CA 94105 USA");
-                    requests.add(item);
-                    result.addAll(client.parseAddress(requests));
+                    Map<String, Map<String, String>> result = new HashMap<>();
+                    Map<String, String> requests = new HashMap<>(4);
+                    requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
+                    requests.put("2", "1 Market St #300, San Francisco, CA 94105 USA");
+                    result.putAll(client.parseAddress(requests));
 
                     requests.clear();
-                    item = new AddressRequest();
-                    item.setId("3");
-                    item.setAddress("900 Concar Dr, San Mateo, CA 94402 USA");
-                    requests.add(item);
-                    item = new AddressRequest();
-                    item.setId("4");
-                    item.setAddress("1 Market St #300, San Francisco, CA 94105 USA");
-                    requests.add(item);
-                    result.addAll(client.parseAddress(requests));
+                    requests.put("3", "900 Concar Dr, San Mateo, CA 94402 USA");
+                    requests.put("4", "1 Market St #300, San Francisco, CA 94105 USA");
+                    result.putAll(client.parseAddress(requests));
                     return result;
                 });
             }
             StopWatch stopWatch = new StopWatch();
             stopWatch.start();
-            List<Future<List<ParseResult>>> futures = threadPool.invokeAll(workers);
-            List<ParseResult> results = new ArrayList<>();
+            List<Future<Map<String, Map<String, String>>>> futures = threadPool.invokeAll(workers);
+            Map<String, Map<String, String>> results = new HashMap<>();
             futures.forEach(future -> {
                 try {
-                    results.addAll(future.get());
+                    results.putAll(future.get());
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 } catch (ExecutionException e) {

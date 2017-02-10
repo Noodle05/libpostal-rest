@@ -13,11 +13,20 @@
     <artifactId>client</artifactId>
     <packaging>jar</packaging>
 
+    <properties>
+        <uuid.version>3.4.0</uuid.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.gaofamily.libpostal</groupId>
             <artifactId>common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.stephenc.eaio-uuid</groupId>
+            <artifactId>uuid</artifactId>
+            <version>${uuid.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>

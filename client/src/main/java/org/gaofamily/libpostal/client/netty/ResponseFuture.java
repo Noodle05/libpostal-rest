@@ -1,6 +1,6 @@
 package org.gaofamily.libpostal.client.netty;
 
-import org.gaofamily.libpostal.model.internal.BatchAddressResult;
+import org.gaofamily.libpostal.model.AddressDataModelProtos;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -15,10 +15,10 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * Created by wgao on 8/18/16.
  */
-class ResponseFuture implements Future<BatchAddressResult> {
+class ResponseFuture implements Future<AddressDataModelProtos.AddressResponse> {
     private final Lock lock;
     private final Condition condition;
-    private volatile BatchAddressResult result = null;
+    private volatile AddressDataModelProtos.AddressResponse result = null;
     private final AtomicBoolean canceled;
     private final AtomicBoolean done;
     private volatile Throwable cause;
@@ -31,7 +31,7 @@ class ResponseFuture implements Future<BatchAddressResult> {
         done = new AtomicBoolean(false);
     }
 
-    void setResult(BatchAddressResult result) {
+    void setResult(AddressDataModelProtos.AddressResponse result) {
         assert result != null;
         if (!canceled.get() && done.compareAndSet(false, true)) {
             this.result = result;
@@ -84,7 +84,7 @@ class ResponseFuture implements Future<BatchAddressResult> {
     }
 
     @Override
-    public BatchAddressResult get() throws InterruptedException, ExecutionException {
+    public AddressDataModelProtos.AddressResponse get() throws InterruptedException, ExecutionException {
         if (canceled.get()) {
             throw new InterruptedException("Canceled");
         }
@@ -108,7 +108,7 @@ class ResponseFuture implements Future<BatchAddressResult> {
     }
 
     @Override
-    public BatchAddressResult get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+    public AddressDataModelProtos.AddressResponse get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
         if (canceled.get()) {
             throw new InterruptedException("Canceled");
         }

@@ -1,0 +1,34 @@
+package libpostal.model;
+
+option java_package = "org.gaofamily.libpostal.model";
+option java_outer_classname = "AddressDataModelProtos";
+
+enum RequestType {
+    PARSE = 0;
+    NORMALIZE = 1;
+}
+
+message AddressRequest {
+    message Request {
+        required string id = 1;
+        required string address = 2;
+    }
+    required string id = 1;
+    required RequestType type = 2;
+    repeated Request requests = 3;
+}
+
+message AddressResponse {
+    message NormalizeResponse {
+        required string id = 1;
+        repeated string data = 2;
+    }
+    message ParseResponse {
+        required string id = 1;
+        map<string, string> data = 2;
+    }
+    required string id = 1;
+    required RequestType type = 2;
+    repeated NormalizeResponse normalizeResult = 3;
+    repeated ParseResponse parseResult = 4;
+}

@@ -10,6 +10,13 @@
         <version>0.1</version>
     </parent>
 
+    <properties>
+        <!-- library versions -->
+        <os-maven-plugin.version>1.4.1.Final</os-maven-plugin.version>
+        <protobuf-maven-plugin.version>0.5.0</protobuf-maven-plugin.version>
+        <protobuf.version>3.1.0</protobuf.version>
+    </properties>
+
     <artifactId>common</artifactId>
     <packaging>jar</packaging>
 
@@ -27,8 +34,43 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
         </dependency>
     </dependencies>
+
+    <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>${os-maven-plugin.version}</version>
+            </extension>
+        </extensions>
+        <plugins>
+            <!-- compile proto buffer files using copied protoc binary -->
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>${protobuf-maven-plugin.version}</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>test-compile</goal>
+                        </goals>
+                        <configuration>
+                            <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

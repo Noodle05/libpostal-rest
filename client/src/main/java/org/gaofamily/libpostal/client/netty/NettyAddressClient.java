@@ -1,16 +1,11 @@
 package org.gaofamily.libpostal.client.netty;
 
+import com.eaio.uuid.UUID;
 import org.gaofamily.libpostal.client.AddressClient;
 import org.gaofamily.libpostal.client.AddressException;
 import org.gaofamily.libpostal.client.LimitExceededException;
 import org.gaofamily.libpostal.client.NoAvailabeServerException;
-import org.gaofamily.libpostal.model.AddressRequest;
-import org.gaofamily.libpostal.model.NormalizeResult;
-import org.gaofamily.libpostal.model.ParseResult;
-import org.gaofamily.libpostal.model.RequestType;
-import org.gaofamily.libpostal.model.codec.CodecHelper;
-import org.gaofamily.libpostal.model.internal.BatchAddressRequest;
-import org.gaofamily.libpostal.model.internal.BatchAddressResult;
+import org.gaofamily.libpostal.model.AddressDataModelProtos;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -29,8 +24,10 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -133,29 +130,41 @@ public class NettyAddressClient implements AddressClient {
     }
 
     @Override
-    public List<ParseResult> parseAddress(List<AddressRequest> requests) {
+    public Map<String, Map<String, String>> parseAddress(Map<String, String> requests) {
         validateRequest(requests);
         if (requests.isEmpty()) {
-            return Collections.emptyList();
+            return Collections.emptyMap();
         }
         logger.debug("Parse address for {} addresses", requests.size());
-        UUID id = UUID.randomUUID();
-        logger.trace("AddressRequest id will be: {}", id);
-        BatchAddressRequest request = new BatchAddressRequest(id, RequestType.PARSE);
-        request.setItems(requests);
+        UUID uuid = new UUID();
+        logger.trace("AddressRequest id will be: {}", uuid);
+        AddressDataModelProtos.AddressRequest.Builder requestBuilder = AddressDataModelProtos.AddressRequest.newBuilder();
+        requestBuilder.setId(uuid.toString()).setType(AddressDataModelProtos.RequestType.PARSE);
+
+        requests.forEach((id, address) -> {
+            requestBuilder.addRequests(AddressDataModelProtos.AddressRequest.Request.newBuilder().setId(id).setAddress(address));
+        });
+
+        AddressDataModelProtos.AddressRequest request = requestBuilder.build();
         logger.trace("Sending address request with id: {} to server.", request.getId());
-        ResponseFuture future = send(request);
-        BatchAddressResult result;
+        ResponseFuture future = send(uuid, request);
+        AddressDataModelProtos.AddressResponse result;
         try {
             logger.trace("Waiting for response for request: {}", request.getId());
             result = future.get();
-            if (!id.equals(result.getId())) {
-                throw new AddressException("Request id not match, expecting: " + id + ", but got: " + result.getId());
+            UUID rUuid = new UUID(result.getId());
+            if (!uuid.equals(rUuid)) {
+                throw new AddressException("Request id not match, expecting: " + uuid + ", but got: " + result.getId());
             }
-            if (!RequestType.PARSE.equals(result.getType())) {
-                throw new AddressException("Request type not match, expecting: " + RequestType.PARSE + ", but got: " + result.getType());
+            if (!AddressDataModelProtos.RequestType.PARSE.equals(result.getType())) {
+                throw new AddressException("Request type not match, expecting: " + AddressDataModelProtos.RequestType.PARSE + ", but got: " + result.getType());
             }
-            return result.getParseResults();
+            Map<String, Map<String, String>> results = new HashMap<>();
+            result.getParseResultList().forEach(pRes -> {
+                Map<String, String> pMap = new LinkedHashMap<>(pRes.getDataCount());
+                results.put(pRes.getId(), pRes.getDataMap());
+            });
+            return results;
         } catch (InterruptedException e) {
             throw new AddressException(e);
         } catch (ExecutionException e) {
@@ -165,25 +174,37 @@ public class NettyAddressClient implements AddressClient {
     }
 
     @Override
-    public List<NormalizeResult> normalizeAddress(List<AddressRequest> requests) {
+    public Map<String, List<String>> normalizeAddress(Map<String, String> requests) {
         validateRequest(requests);
         if (requests.isEmpty()) {
-            return Collections.emptyList();
+            return Collections.emptyMap();
         }
-        UUID id = UUID.randomUUID();
-        BatchAddressRequest request = new BatchAddressRequest(id, RequestType.NORMALIZE);
-        request.setItems(requests);
-        ResponseFuture future = send(request);
-        BatchAddressResult result;
+        UUID uuid = new UUID();
+        logger.trace("AddressRequest id will be: {}", uuid);
+        AddressDataModelProtos.AddressRequest.Builder requestBuilder = AddressDataModelProtos.AddressRequest.newBuilder();
+        requestBuilder.setId(uuid.toString()).setType(AddressDataModelProtos.RequestType.NORMALIZE);
+
+        requests.forEach((id, address) -> {
+            requestBuilder.addRequests(AddressDataModelProtos.AddressRequest.Request.newBuilder().setId(id).setAddress(address));
+        });
+
+        AddressDataModelProtos.AddressRequest request = requestBuilder.build();
+        ResponseFuture future = send(uuid, request);
+        AddressDataModelProtos.AddressResponse result;
         try {
             result = future.get();
-            if (!id.equals(result.getId())) {
-                throw new AddressException("Request id not match, expecting: " + id + ", but got: " + result.getId());
+            UUID rUuid = new UUID(result.getId());
+            if (!uuid.equals(rUuid)) {
+                throw new AddressException("Request id not match, expecting: " + uuid + ", but got: " + result.getId());
             }
-            if (!RequestType.NORMALIZE.equals(result.getType())) {
-                throw new AddressException("Request type not match, expecting: " + RequestType.NORMALIZE + ", but got: " + result.getType());
+            if (!AddressDataModelProtos.RequestType.NORMALIZE.equals(result.getType())) {
+                throw new AddressException("Request type not match, expecting: " + AddressDataModelProtos.RequestType.NORMALIZE + ", but got: " + result.getType());
             }
-            return result.getNormalizeResults();
+            Map<String, List<String>> results = new HashMap<>(result.getNormalizeResultCount());
+            result.getNormalizeResultList().forEach(rRes -> {
+                results.put(rRes.getId(), rRes.getDataList());
+            });
+            return results;
         } catch (InterruptedException e) {
             throw new AddressException(e);
         } catch (ExecutionException e) {
@@ -228,7 +249,7 @@ public class NettyAddressClient implements AddressClient {
         }
     }
 
-    private ResponseFuture send(final BatchAddressRequest request) {
+    private ResponseFuture send(final UUID uuid, final AddressDataModelProtos.AddressRequest request) {
         InetSocketAddress serverAddress = getNextSocketAddress();
 
         final ResponseFuture future = new ResponseFuture();
@@ -239,9 +260,8 @@ public class NettyAddressClient implements AddressClient {
             Future<Channel> f1 = (Future<Channel>) fu;
             if (f1.isSuccess()) {
                 Channel ch = f1.getNow();
-                ch.pipeline().get(NettyAddressHandler.class).addResponseFuture(ch.id(), request.getId(), future);
-                ch.write(request);
-                ch.writeAndFlush(CodecHelper.delimiter).addListener(f2 -> pool.release(((ChannelFuture) f2).channel()));
+                ch.pipeline().get(NettyAddressHandler.class).addResponseFuture(ch.id(), uuid, future);
+                ch.writeAndFlush(request).addListener(f2 -> pool.release(((ChannelFuture) f2).channel()));
             } else {
                 logger.debug("Cannot get channel from pool.");
                 future.setFailure(new AddressException("Cannot get connection."));
@@ -251,7 +271,7 @@ public class NettyAddressClient implements AddressClient {
         return future;
     }
 
-    private void validateRequest(List<AddressRequest> requests) {
+    private void validateRequest(Map<String, String> requests) {
         if (requests == null) {
             throw new NullPointerException("Request cannot be null");
         }
@@ -264,7 +284,7 @@ public class NettyAddressClient implements AddressClient {
         Throwable cause = e.getCause();
         if (cause != null) {
             if (cause instanceof RuntimeException) {
-                throw (RuntimeException)cause;
+                throw (RuntimeException) cause;
             } else {
                 throw new AddressException(cause);
             }

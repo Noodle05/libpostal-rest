@@ -1,18 +1,15 @@
 package org.gaofamily.libpostal.client;
 
-import org.gaofamily.libpostal.model.AddressRequest;
-import org.gaofamily.libpostal.model.NormalizeResult;
-import org.gaofamily.libpostal.model.ParseResult;
-
 import java.io.Closeable;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Wei Gao
  * @since 8/16/16
  */
 public interface AddressClient extends Closeable {
-    List<ParseResult> parseAddress(List<AddressRequest> requests);
+    Map<String, Map<String, String>> parseAddress(Map<String, String> requests);
 
-    List<NormalizeResult> normalizeAddress(List<AddressRequest> requests);
+    Map<String, List<String>> normalizeAddress(Map<String, String> requests);
 }

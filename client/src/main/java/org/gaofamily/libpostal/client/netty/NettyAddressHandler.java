@@ -1,6 +1,7 @@
 package org.gaofamily.libpostal.client.netty;
 
-import org.gaofamily.libpostal.model.internal.BatchAddressResult;
+import com.eaio.uuid.UUID;
+import org.gaofamily.libpostal.model.AddressDataModelProtos;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -9,7 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.ClosedChannelException;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -32,8 +32,9 @@ class NettyAddressHandler extends ChannelInboundHandlerAdapter {
             ChannelId cid = ctx.channel().id();
             ConcurrentMap<UUID, ResponseFuture> reps = responses.get(cid);
             if (reps != null) {
-                BatchAddressResult result = (BatchAddressResult) msg;
-                ResponseFuture future = reps.get(result.getId());
+                AddressDataModelProtos.AddressResponse result = (AddressDataModelProtos.AddressResponse) msg;
+                UUID uuid = new UUID(result.getId());
+                ResponseFuture future = reps.get(uuid);
                 if (future != null) {
                     future.setResult(result);
                 }
