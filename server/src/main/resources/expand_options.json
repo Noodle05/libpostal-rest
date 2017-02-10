@@ -1,0 +1,24 @@
+{
+  "languages": [
+    "en"
+  ],
+  "addressComponents": 30,
+  "latinAscii": true,
+  "transliterate": true,
+  "stripAccents": true,
+  "decompose": true,
+  "lowercase": true,
+  "trimString": true,
+  "dropParentheticals": true,
+  "replaceNumericHyphens": false,
+  "deleteNumericHyphens": false,
+  "splitAlphaFromNumeric": false,
+  "replaceWordHyphens": true,
+  "deleteWordHyphens": true,
+  "deleteFinalPeriods": true,
+  "deleteAcronymPeriods": true,
+  "dropEnglishPossessives": true,
+  "deleteApostrophes": true,
+  "expandNumex": true,
+  "romanNumerals": true
+}

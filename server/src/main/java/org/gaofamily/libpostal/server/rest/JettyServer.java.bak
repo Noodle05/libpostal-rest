@@ -1,0 +1,120 @@
+package com.salesforce.ddc.libpostal.server.rest;
+
+import AbstractServiceServer;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.thread.ExecutorThreadPool;
+import org.eclipse.jetty.util.thread.ThreadPool;
+import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.servlet.ServletContainer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * @author Wei Gao
+ * @since 8/16/16
+ */
+public class JettyServer extends AbstractServiceServer {
+    private static final Logger logger = LoggerFactory.getLogger(JettyServer.class);
+
+    public static final String HTTP_PORT = "httpPort";
+    private static final String THREADPOOL_PREFIX = "Jetty-";
+
+    private ServletContextHandler context = null;
+    private Server server = null;
+    private final ExecutorService threadPool;
+
+    public JettyServer(int numberOfThread) {
+        AtomicInteger counter = new AtomicInteger(0);
+        ThreadPoolExecutor tp = new ThreadPoolExecutor(numberOfThread,
+                numberOfThread, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+                runnable -> {
+                    Thread thread = new Thread(runnable);
+                    thread.setName(THREADPOOL_PREFIX + counter.incrementAndGet());
+                    return thread;
+                });
+        tp.prestartAllCoreThreads();
+        threadPool = tp;
+    }
+
+    @Override
+    protected void internalStart() {
+        int port = 0;
+        String portStr = System.getProperty(HTTP_PORT, "8080");
+        try {
+            port = Integer.parseInt(portStr);
+        } catch (NumberFormatException e) {
+            logger.error("Invalid port value: " + portStr, e);
+            System.exit(1);
+        }
+        if (port <= 0 || port > 65536) {
+            logger.error("Invalid port value: " + port);
+            System.exit(1);
+        }
+        logger.info("Listening on port {} ...", port);
+
+        ResourceConfig resourceConfig = new ResourceConfig(AddressParseHandler.class, AddressNormalizeHandler.class);
+        ServletHolder servlet = new ServletHolder(new ServletContainer(resourceConfig));
+
+        ThreadPool etp = new ExecutorThreadPool(threadPool);
+
+        server = new Server(etp);
+        server.setStopAtShutdown(false);
+        ServerConnector connector = new ServerConnector(server);
+        connector.setPort(port);
+        server.addConnector(connector);
+        context = new ServletContextHandler(server, "/*");
+        context.addServlet(servlet, "/*");
+
+        try {
+            server.start();
+            logger.info("Ready to serve");
+        } catch (Exception e) {
+            logger.warn("Exception: ", e);
+        }
+    }
+
+    @Override
+    protected void internalStop() {
+        logger.info("Stopping jetty server");
+        if (context != null) {
+            try {
+                logger.debug("Stop servlet context");
+                context.stop();
+            } catch (Exception e) {
+                logger.warn("Stop servlet context error.", e);
+            } finally {
+                context = null;
+            }
+
+        }
+        if (server != null) {
+            try {
+                logger.debug("Stop server");
+                server.stop();
+            } catch (Exception e) {
+                logger.warn("Stop server error.", e);
+            } finally {
+                logger.debug("Destroy jetty server");
+                try {
+                    server.destroy();
+                } catch (Throwable e) {
+                    logger.warn("Destroy jetty server error.", e);
+                } finally {
+                    server = null;
+                }
+            }
+        }
+        if (!threadPool.isShutdown()) {
+            threadPool.shutdown();
+        }
+    }
+}
