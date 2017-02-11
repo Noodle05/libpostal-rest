@@ -24,19 +24,24 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * @author Wei Gao
@@ -48,8 +53,10 @@ public class NettyAddressClient implements AddressClient {
     private static final int DEFAULT_THREAD_NUMBER = Runtime.getRuntime().availableProcessors() * 2;
     private static final int DEFAULT_CONNECTION_NUMBER = 1;
     private static final int MAX_ADDRESSES_PER_REQUEST = 100;
+    private static final long CLIENT_TIMEOUT = 5000L;
 
-    private ExecutorService threadPool;
+    private final ExecutorService threadPool;
+    private final ScheduledExecutorService delayer;
     private final boolean threadPoolOwner;
     private final ChannelPoolMap<InetSocketAddress, FixedChannelPool> poolMap;
     private EventLoopGroup workerGroup;
@@ -114,6 +121,7 @@ public class NettyAddressClient implements AddressClient {
 
         this.threadPool = tp;
         this.threadPoolOwner = tpOwner;
+        this.delayer = Executors.newScheduledThreadPool(1);
 
         poolMap = new AbstractChannelPoolMap<InetSocketAddress, FixedChannelPool>() {
             @Override
@@ -130,10 +138,13 @@ public class NettyAddressClient implements AddressClient {
     }
 
     @Override
-    public Map<String, Map<String, String>> parseAddress(Map<String, String> requests) {
+    public CompletableFuture<Void> parseAddress(Map<String, String> requests, Consumer<Map<String, Map<String, String>>> callback,
+                                                Function<Throwable, Void> exceptionHandler) {
         validateRequest(requests);
+        CompletableFuture<Map<String, Map<String, String>>> future = new CompletableFuture<>();
+        CompletableFuture<Void> f = future.acceptEither(timeoutAfter(CLIENT_TIMEOUT, TimeUnit.MILLISECONDS), callback).exceptionally(exceptionHandler);
         if (requests.isEmpty()) {
-            return Collections.emptyMap();
+            future.complete(Collections.emptyMap());
         }
         logger.debug("Parse address for {} addresses", requests.size());
         UUID uuid = new UUID();
@@ -147,37 +158,18 @@ public class NettyAddressClient implements AddressClient {
 
         AddressDataModelProtos.AddressRequest request = requestBuilder.build();
         logger.trace("Sending address request with id: {} to server.", request.getId());
-        ResponseFuture future = send(uuid, request);
-        AddressDataModelProtos.AddressResponse result;
-        try {
-            logger.trace("Waiting for response for request: {}", request.getId());
-            result = future.get();
-            UUID rUuid = new UUID(result.getId());
-            if (!uuid.equals(rUuid)) {
-                throw new AddressException("Request id not match, expecting: " + uuid + ", but got: " + result.getId());
-            }
-            if (!AddressDataModelProtos.RequestType.PARSE.equals(result.getType())) {
-                throw new AddressException("Request type not match, expecting: " + AddressDataModelProtos.RequestType.PARSE + ", but got: " + result.getType());
-            }
-            Map<String, Map<String, String>> results = new HashMap<>();
-            result.getParseResultList().forEach(pRes -> {
-                Map<String, String> pMap = new LinkedHashMap<>(pRes.getDataCount());
-                results.put(pRes.getId(), pRes.getDataMap());
-            });
-            return results;
-        } catch (InterruptedException e) {
-            throw new AddressException(e);
-        } catch (ExecutionException e) {
-            processExecutionException(e);
-        }
-        return null;
+        send(uuid, request, future);
+        return f;
     }
 
     @Override
-    public Map<String, List<String>> normalizeAddress(Map<String, String> requests) {
+    public CompletableFuture<Void> normalizeAddress(Map<String, String> requests, Consumer<Map<String, List<String>>> callback,
+                                                    Function<Throwable, Void> exceptionHandler) {
         validateRequest(requests);
+        CompletableFuture<Map<String, List<String>>> future = new CompletableFuture<>();
+        CompletableFuture<Void> f = future.acceptEither(timeoutAfter(CLIENT_TIMEOUT, TimeUnit.MILLISECONDS), callback).exceptionally(exceptionHandler);
         if (requests.isEmpty()) {
-            return Collections.emptyMap();
+            future.complete(Collections.emptyMap());
         }
         UUID uuid = new UUID();
         logger.trace("AddressRequest id will be: {}", uuid);
@@ -189,28 +181,8 @@ public class NettyAddressClient implements AddressClient {
         });
 
         AddressDataModelProtos.AddressRequest request = requestBuilder.build();
-        ResponseFuture future = send(uuid, request);
-        AddressDataModelProtos.AddressResponse result;
-        try {
-            result = future.get();
-            UUID rUuid = new UUID(result.getId());
-            if (!uuid.equals(rUuid)) {
-                throw new AddressException("Request id not match, expecting: " + uuid + ", but got: " + result.getId());
-            }
-            if (!AddressDataModelProtos.RequestType.NORMALIZE.equals(result.getType())) {
-                throw new AddressException("Request type not match, expecting: " + AddressDataModelProtos.RequestType.NORMALIZE + ", but got: " + result.getType());
-            }
-            Map<String, List<String>> results = new HashMap<>(result.getNormalizeResultCount());
-            result.getNormalizeResultList().forEach(rRes -> {
-                results.put(rRes.getId(), rRes.getDataList());
-            });
-            return results;
-        } catch (InterruptedException e) {
-            throw new AddressException(e);
-        } catch (ExecutionException e) {
-            processExecutionException(e);
-        }
-        return null;
+        send(uuid, request, future);
+        return f;
     }
 
     @Override
@@ -227,6 +199,7 @@ public class NettyAddressClient implements AddressClient {
         if (threadPool != null && threadPoolOwner) {
             threadPool.shutdown();
         }
+        delayer.shutdown();
     }
 
     public void addNewServer(InetSocketAddress socketAddress) {
@@ -249,10 +222,8 @@ public class NettyAddressClient implements AddressClient {
         }
     }
 
-    private ResponseFuture send(final UUID uuid, final AddressDataModelProtos.AddressRequest request) {
+    private void send(final UUID uuid, final AddressDataModelProtos.AddressRequest request, CompletableFuture<? extends Map> future) {
         InetSocketAddress serverAddress = getNextSocketAddress();
-
-        final ResponseFuture future = new ResponseFuture();
 
         final FixedChannelPool pool = poolMap.get(serverAddress);
         Future<Channel> f = pool.acquire();
@@ -264,11 +235,9 @@ public class NettyAddressClient implements AddressClient {
                 ch.writeAndFlush(request).addListener(f2 -> pool.release(((ChannelFuture) f2).channel()));
             } else {
                 logger.debug("Cannot get channel from pool.");
-                future.setFailure(new AddressException("Cannot get connection."));
+                future.completeExceptionally(new AddressException("Cannot get connection."));
             }
         });
-
-        return future;
     }
 
     private void validateRequest(Map<String, String> requests) {
@@ -307,6 +276,12 @@ public class NettyAddressClient implements AddressClient {
         } finally {
             socketReadLock.unlock();
         }
+    }
+
+    private <T> CompletableFuture<T> timeoutAfter(long timeout, TimeUnit timeUnit) {
+        CompletableFuture<T> result = new CompletableFuture<T>();
+        delayer.schedule(() -> result.completeExceptionally(new TimeoutException()), timeout, timeUnit);
+        return result;
     }
 
     @Override

@@ -10,6 +10,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.ClosedChannelException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -19,7 +23,7 @@ import java.util.concurrent.ConcurrentMap;
 class NettyAddressHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = LoggerFactory.getLogger(NettyAddressHandler.class);
 
-    private final ConcurrentMap<ChannelId, ConcurrentMap<UUID, ResponseFuture>> responses;
+    private final ConcurrentMap<ChannelId, ConcurrentMap<UUID, CompletableFuture<? extends Map>>> responses;
 
     NettyAddressHandler() {
         responses = new ConcurrentHashMap<>();
@@ -28,15 +32,32 @@ class NettyAddressHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
-            logger.trace("Get response: ", msg);
+            logger.trace("Get response: {}", msg);
             ChannelId cid = ctx.channel().id();
-            ConcurrentMap<UUID, ResponseFuture> reps = responses.get(cid);
+            ConcurrentMap<UUID, CompletableFuture<? extends Map>> reps = responses.get(cid);
             if (reps != null) {
                 AddressDataModelProtos.AddressResponse result = (AddressDataModelProtos.AddressResponse) msg;
                 UUID uuid = new UUID(result.getId());
-                ResponseFuture future = reps.get(uuid);
+                CompletableFuture<? extends Map> future = reps.remove(uuid);
                 if (future != null) {
-                    future.setResult(result);
+                    switch (result.getType()) {
+                        case PARSE:
+                            Map<String, Map<String, String>> pRes = new HashMap<>();
+                            result.getParseResultList().forEach(res -> {
+                                pRes.put(res.getId(), res.getDataMap());
+                            });
+                            final CompletableFuture<Map<String, Map<String, String>>> pf = (CompletableFuture<Map<String, Map<String, String>>>) future;
+                            pf.complete(pRes);
+                            break;
+                        case NORMALIZE:
+                            Map<String, List<String>> rRes = new HashMap<>(result.getNormalizeResultCount());
+                            result.getNormalizeResultList().forEach(res -> {
+                                rRes.put(res.getId(), res.getDataList());
+                            });
+                            final CompletableFuture<Map<String, List<String>>> rf = (CompletableFuture<Map<String, List<String>>>) future;
+                            rf.complete(rRes);
+                            break;
+                    }
                 }
             } else {
                 logger.error("This channel has not response map yet!");
@@ -64,24 +85,23 @@ class NettyAddressHandler extends ChannelInboundHandlerAdapter {
     private void cleanUpChannel(ChannelHandlerContext ctx, Throwable cause) {
         ChannelId cid = ctx.channel().id();
         logger.trace("Cleaning up response map for channel: {}", cid);
-        ConcurrentMap<UUID, ResponseFuture> reps = responses.remove(cid);
+        ConcurrentMap<UUID, CompletableFuture<? extends Map>> reps = responses.remove(cid);
 
         if (reps != null) {
-            reps.forEach((id, future) -> {
-                future.setFailure(cause);
-            });
+            reps.forEach((id, future) -> future.completeExceptionally(cause));
         }
     }
 
-    public void addResponseFuture(ChannelId cid, UUID id, ResponseFuture future) {
-        ConcurrentMap<UUID, ResponseFuture> reps = responses.get(cid);
+    void addResponseFuture(ChannelId cid, UUID id, CompletableFuture<? extends Map> future) {
+        ConcurrentMap<UUID, CompletableFuture<? extends Map>> reps = responses.get(cid);
         if (reps == null) {
             reps = new ConcurrentHashMap<>();
-            ConcurrentMap<UUID, ResponseFuture> tmp = responses.putIfAbsent(cid, reps);
+            ConcurrentMap<UUID, CompletableFuture<? extends Map>> tmp = responses.putIfAbsent(cid, reps);
             if (tmp != null) {
                 reps = tmp;
             }
         }
+
         reps.put(id, future);
     }
 }
