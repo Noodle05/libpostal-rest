@@ -78,7 +78,7 @@ public class NettyAddressClientTest {
         int number = 4;
         int numberOfWorker = 150;
         final AtomicInteger counter = new AtomicInteger(0);
-        ExecutorService threadPool = Executors.newFixedThreadPool(numberOfWorker, runnable -> {
+        ExecutorService threadPool = Executors.newFixedThreadPool(number * 10, runnable -> {
             Thread thread = new Thread(runnable);
             thread.setName("TestThread-" + counter.incrementAndGet());
             return thread;
@@ -114,10 +114,9 @@ public class NettyAddressClientTest {
             stopWatch.stop();
             long time = stopWatch.getTime();
             System.out.println("Use time: " + time + "ms.");
-            Assert.assertEquals(total.get(), 300);
+            Assert.assertEquals(total.get(), numberOfWorker * 2);
         } finally {
             threadPool.shutdown();
         }
-        System.out.println("ok");
     }
 }

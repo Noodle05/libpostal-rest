@@ -14,8 +14,8 @@ import java.util.function.Function;
 public interface AddressClient extends Closeable {
     CompletableFuture<Void> parseAddress(Map<String, String> requests,
                                          Consumer<Map<String, Map<String, String>>> callback,
-                                         Function<Throwable, Void> exceptionHandler);
+                                         Function<Throwable, Void> exceptionHandler) throws InterruptedException;
 
     CompletableFuture<Void> normalizeAddress(Map<String, String> requests, Consumer<Map<String, List<String>>> callback,
-                                             Function<Throwable, Void> exceptionHandler);
+                                             Function<Throwable, Void> exceptionHandler) throws InterruptedException;
 }
