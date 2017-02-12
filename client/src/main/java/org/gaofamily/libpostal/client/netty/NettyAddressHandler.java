@@ -1,7 +1,7 @@
 package org.gaofamily.libpostal.client.netty;
 
-import com.eaio.uuid.UUID;
-import org.gaofamily.libpostal.model.AddressDataModelProtos;
+import org.gaofamily.libpostal.client.utils.UUIDHelper;
+import org.gaofamily.libpostal.model.nano.AddressDataModelProtos;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelId;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -10,9 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.ClosedChannelException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -37,23 +39,27 @@ class NettyAddressHandler extends ChannelInboundHandlerAdapter {
             ConcurrentMap<UUID, CompletableFuture<? extends Map>> reps = responses.get(cid);
             if (reps != null) {
                 AddressDataModelProtos.AddressResponse result = (AddressDataModelProtos.AddressResponse) msg;
-                UUID uuid = new UUID(result.getId());
+                UUID uuid = UUIDHelper.fromBytes(result.id);
                 CompletableFuture<? extends Map> future = reps.remove(uuid);
                 if (future != null) {
-                    switch (result.getType()) {
-                        case PARSE:
+                    switch (result.type) {
+                        case AddressDataModelProtos.PARSE:
                             Map<String, Map<String, String>> pRes = new HashMap<>();
-                            result.getParseResultList().forEach(res -> {
-                                pRes.put(res.getId(), res.getDataMap());
-                            });
+                            for (AddressDataModelProtos.AddressResponse.ParseResponse pr : result.parseResult) {
+                                Map<String, String> pre = new HashMap<>(pr.data.length);
+                                for (AddressDataModelProtos.AddressResponse.ParseResponse.DataEntry de : pr.data) {
+                                    pre.put(de.key, de.value);
+                                }
+                                pRes.put(pr.id, pre);
+                            }
                             final CompletableFuture<Map<String, Map<String, String>>> pf = (CompletableFuture<Map<String, Map<String, String>>>) future;
                             pf.complete(pRes);
                             break;
-                        case NORMALIZE:
-                            Map<String, List<String>> rRes = new HashMap<>(result.getNormalizeResultCount());
-                            result.getNormalizeResultList().forEach(res -> {
-                                rRes.put(res.getId(), res.getDataList());
-                            });
+                        case AddressDataModelProtos.NORMALIZE:
+                            Map<String, List<String>> rRes = new HashMap<>(result.normalizeResult.length);
+                            for (AddressDataModelProtos.AddressResponse.NormalizeResponse nr : result.normalizeResult) {
+                                rRes.put(nr.id, Arrays.asList(nr.data));
+                            }
                             final CompletableFuture<Map<String, List<String>>> rf = (CompletableFuture<Map<String, List<String>>>) future;
                             rf.complete(rRes);
                             break;

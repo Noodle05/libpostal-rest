@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Wei Gao
@@ -26,7 +27,7 @@ public class NettyAddressClientTest {
 
     @Test(groups = {"integration"})
     public void testParsePositive() throws InterruptedException, UnknownHostException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
             Map<String, String> requests = new HashMap<>(1);
             requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
             Future<Void> future = client.parseAddress(requests, result -> {
@@ -43,7 +44,7 @@ public class NettyAddressClientTest {
 
     @Test(groups = {"integration"})
     public void testNormalizePositive() throws InterruptedException, UnknownHostException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
             Map<String, String> requests = new HashMap<>(1);
             requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
             Future<Void> future = client.normalizeAddress(requests, result -> {
@@ -58,13 +59,13 @@ public class NettyAddressClientTest {
     }
 
     @Test(groups = {"integration"})
-    public void testLargePacket() throws UnknownHostException, InterruptedException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5, null)) {
+    public void testLargePack() throws UnknownHostException, InterruptedException, ExecutionException {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
             Map<String, String> requests = new HashMap<>(20);
             for (int i = 0; i < 20; i++) {
                 requests.put(Integer.toString(i), "900 Concar Dr, San Mateo, CA 94402 USA");
             }
-            Future<Void> future = client.parseAddress(requests, result -> Assert.assertNotNull(result), cause -> {
+            Future<Void> future = client.normalizeAddress(requests, result -> Assert.assertNotNull(result), cause -> {
                 Assert.fail("Failed", cause);
                 return null;
             });
@@ -76,49 +77,47 @@ public class NettyAddressClientTest {
     public void testMultiThreadParse() throws InterruptedException, UnknownHostException {
         int number = 4;
         int numberOfWorker = 150;
-        final Map<String, Map<String, String>> results = new HashMap<>();
-        ExecutorService threadPool = Executors.newFixedThreadPool(numberOfWorker);
+        final AtomicInteger counter = new AtomicInteger(0);
+        ExecutorService threadPool = Executors.newFixedThreadPool(numberOfWorker, runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("TestThread-" + counter.incrementAndGet());
+            return thread;
+        });
+        final AtomicInteger total = new AtomicInteger(0);
         List<Callable<Map<String, Map<String, String>>>> workers = new ArrayList<>(numberOfWorker);
-        try (NettyAddressClient client = new NettyAddressClient(host, port, number, number, null)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, number)) {
             for (int i = 0; i < numberOfWorker; i++) {
                 workers.add(() -> {
-                    Map<String, String> requests = new HashMap<>(4);
-                    requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
-                    requests.put("2", "1 Market St #300, San Francisco, CA 94105 USA");
-                    Future<Void> f1 = client.parseAddress(requests, res -> results.putAll(res), cause -> {
-                        Assert.fail("Failed", cause);
-                        return null;
-                    });
-
-                    requests.clear();
-                    requests.put("3", "900 Concar Dr, San Mateo, CA 94402 USA");
-                    requests.put("4", "1 Market St #300, San Francisco, CA 94105 USA");
-                    Future<Void> f2 = client.parseAddress(requests, res -> results.putAll(res), cause -> {
-                        Assert.fail("Failed", cause);
-                        return null;
-                    });
-                    f1.get();
-                    f2.get();
+                    try {
+                        Map<String, String> requests = new HashMap<>(2);
+                        requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
+                        requests.put("2", "1 Market St #300, San Francisco, CA 94105 USA");
+                        Future<Void> f1 = client.parseAddress(requests, res -> {
+                            logger.trace("Get parse result: {}", res);
+                            int n = total.addAndGet(res.size());
+                            logger.trace("Get {} results so far.", n);
+                        }, cause -> {
+                            Assert.fail("Failed", cause);
+                            return null;
+                        });
+                        f1.get();
+                        logger.trace("This thread done.");
+                    } catch (Throwable e) {
+                        logger.warn("What?", e);
+                    }
                     return null;
                 });
             }
             StopWatch stopWatch = new StopWatch();
             stopWatch.start();
             threadPool.invokeAll(workers);
-//            List<Future<Map<String, Map<String, String>>>> futures = threadPool.invokeAll(workers);
-//            futures.forEach(future -> {
-//                try {
-//                    results.putAll(future.get());
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                } catch (ExecutionException e) {
-//                    e.printStackTrace();
-//                }
-//            });
             stopWatch.stop();
             long time = stopWatch.getTime();
             System.out.println("Use time: " + time + "ms.");
-            Assert.assertFalse(results.isEmpty());
+            Assert.assertEquals(total.get(), 300);
+        } finally {
+            threadPool.shutdown();
         }
+        System.out.println("ok");
     }
 }

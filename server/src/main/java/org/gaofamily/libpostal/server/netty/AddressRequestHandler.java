@@ -1,6 +1,6 @@
 package org.gaofamily.libpostal.server.netty;
 
-import org.gaofamily.libpostal.model.AddressDataModelProtos;
+import org.gaofamily.libpostal.model.nano.AddressDataModelProtos;
 import org.gaofamily.libpostal.service.AddressService;
 import org.gaofamily.libpostal.service.AddressServiceFactory;
 import io.netty.channel.ChannelHandlerContext;
@@ -9,6 +9,8 @@ import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,38 +27,50 @@ public class AddressRequestHandler extends ChannelInboundHandlerAdapter {
         logger.debug("Chanel: \"{}\" get data {}", ctx.channel().id(), msg);
         try {
             AddressDataModelProtos.AddressRequest request = (AddressDataModelProtos.AddressRequest) msg;
-            logger.debug("Got address request for id: {}", request.getId());
-            AddressDataModelProtos.AddressResponse.Builder respBuilder = AddressDataModelProtos.AddressResponse.newBuilder();
-            respBuilder.setId(request.getId());
-            respBuilder.setType(request.getType());
+            logger.debug("Got address request for id: {}", request.id);
+            AddressDataModelProtos.AddressResponse response = new AddressDataModelProtos.AddressResponse();
+            response.id = request.id;
+            response.type = request.type;
 
-            Map<String, String> requests = new HashMap<>(request.getRequestsCount());
-            request.getRequestsList().forEach(req -> requests.put(req.getId(), req.getAddress()));
+            Map<String, String> requests = new HashMap<>(request.requests.length);
+            for (AddressDataModelProtos.AddressRequest.Request req : request.requests) {
+                requests.put(req.id, req.address);
+            }
             AddressService addressService = AddressServiceFactory.getAddressService();
-            switch (request.getType()) {
-                case PARSE:
+            switch (request.type) {
+                case AddressDataModelProtos.PARSE:
                     Map<String, Map<String, String>> pResults = addressService.parseAddress(requests);
                     logger.trace("Parse address done.");
+                    Collection<AddressDataModelProtos.AddressResponse.ParseResponse> prs = new ArrayList<>(pResults.size());
                     pResults.forEach((id, result) -> {
-                        AddressDataModelProtos.AddressResponse.ParseResponse.Builder prBuilder = AddressDataModelProtos.AddressResponse.ParseResponse.newBuilder();
-                        prBuilder.setId(id);
+                        AddressDataModelProtos.AddressResponse.ParseResponse pr = new AddressDataModelProtos.AddressResponse.ParseResponse();
+                        pr.id = id;
+                        Collection<AddressDataModelProtos.AddressResponse.ParseResponse.DataEntry> ds = new ArrayList<>();
                         result.forEach((key, value) -> {
-                            prBuilder.putData(key, value);
+                            AddressDataModelProtos.AddressResponse.ParseResponse.DataEntry de = new AddressDataModelProtos.AddressResponse.ParseResponse.DataEntry();
+                            de.key = key;
+                            de.value = value;
+                            ds.add(de);
                         });
-                        respBuilder.addParseResult(prBuilder);
+                        pr.data = ds.toArray(new AddressDataModelProtos.AddressResponse.ParseResponse.DataEntry[ds.size()]);
+                        prs.add(pr);
                     });
+                    response.parseResult = prs.toArray(new AddressDataModelProtos.AddressResponse.ParseResponse[prs.size()]);
                     break;
-                case NORMALIZE:
+                case AddressDataModelProtos.NORMALIZE:
                     Map<String, List<String>> nResults = addressService.normalizeAddress(requests);
                     logger.trace("Normalize address done.");
+                    Collection<AddressDataModelProtos.AddressResponse.NormalizeResponse> ns = new ArrayList<>(nResults.size());
                     nResults.forEach((id, result) -> {
-                        respBuilder.addNormalizeResult(AddressDataModelProtos.AddressResponse.NormalizeResponse.newBuilder()
-                                .setId(id)
-                                .addAllData(result));
+                        AddressDataModelProtos.AddressResponse.NormalizeResponse nr = new AddressDataModelProtos.AddressResponse.NormalizeResponse();
+                        nr.id = id;
+                        nr.data = result.toArray(new String[result.size()]);
+                        ns.add(nr);
                     });
+                    response.normalizeResult = ns.toArray(new AddressDataModelProtos.AddressResponse.NormalizeResponse[ns.size()]);
                     break;
             }
-            ctx.writeAndFlush(respBuilder.build());
+            ctx.writeAndFlush(response);
         } finally {
             ReferenceCountUtil.release(msg);
         }

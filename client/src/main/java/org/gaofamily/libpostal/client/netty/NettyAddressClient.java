@@ -1,11 +1,11 @@
 package org.gaofamily.libpostal.client.netty;
 
-import com.eaio.uuid.UUID;
 import org.gaofamily.libpostal.client.AddressClient;
 import org.gaofamily.libpostal.client.AddressException;
 import org.gaofamily.libpostal.client.LimitExceededException;
 import org.gaofamily.libpostal.client.NoAvailabeServerException;
-import org.gaofamily.libpostal.model.AddressDataModelProtos;
+import org.gaofamily.libpostal.client.utils.UUIDHelper;
+import org.gaofamily.libpostal.model.nano.AddressDataModelProtos;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -22,24 +22,25 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -50,14 +51,13 @@ import java.util.function.Function;
 public class NettyAddressClient implements AddressClient {
     private static final Logger logger = LoggerFactory.getLogger(NettyAddressClient.class);
     private static final String THREADPOOL_PREFIX = "NettyClient-";
-    private static final int DEFAULT_THREAD_NUMBER = Runtime.getRuntime().availableProcessors() * 2;
     private static final int DEFAULT_CONNECTION_NUMBER = 1;
+    private static final int DEFAULT_THREAD_NUMBER = 0;
     private static final int MAX_ADDRESSES_PER_REQUEST = 100;
-    private static final long CLIENT_TIMEOUT = 5000L;
+    private static final long CLIENT_TIMEOUT = 3000L;
 
     private final ExecutorService threadPool;
     private final ScheduledExecutorService delayer;
-    private final boolean threadPoolOwner;
     private final ChannelPoolMap<InetSocketAddress, FixedChannelPool> poolMap;
     private EventLoopGroup workerGroup;
     private final List<InetSocketAddress> socketAddresses;
@@ -66,67 +66,57 @@ public class NettyAddressClient implements AddressClient {
     private final AtomicInteger socketIndex;
 
     public NettyAddressClient(String host, int port) throws InterruptedException, UnknownHostException {
-        this(DEFAULT_CONNECTION_NUMBER, DEFAULT_THREAD_NUMBER, null, new InetSocketAddress(host, port));
+        this(DEFAULT_CONNECTION_NUMBER, DEFAULT_THREAD_NUMBER, new InetSocketAddress(host, port));
     }
 
     public NettyAddressClient(String host, int port, int numberOfConnection) throws InterruptedException, UnknownHostException {
-        this(numberOfConnection, DEFAULT_THREAD_NUMBER, null, new InetSocketAddress(host, port));
+        this(numberOfConnection, DEFAULT_THREAD_NUMBER, new InetSocketAddress(host, port));
     }
 
-    public NettyAddressClient(String host, int port, int numberOfThread, ExecutorService threadPool) throws InterruptedException, UnknownHostException {
-        this(DEFAULT_CONNECTION_NUMBER, numberOfThread, threadPool, new InetSocketAddress(host, port));
-    }
-
-    public NettyAddressClient(String host, int port, int numberOfConnection, int numberOfThread, ExecutorService threadPool) throws InterruptedException, UnknownHostException {
-        this(numberOfConnection, numberOfThread, threadPool, new InetSocketAddress(host, port));
+    public NettyAddressClient(String host, int port, int numberOfConnection, int numberOfThread) throws InterruptedException, UnknownHostException {
+        this(numberOfConnection, numberOfThread, new InetSocketAddress(host, port));
     }
 
     public NettyAddressClient(InetSocketAddress... addresses) throws InterruptedException, UnknownHostException {
-        this(DEFAULT_CONNECTION_NUMBER, DEFAULT_THREAD_NUMBER, null, addresses);
+        this(DEFAULT_CONNECTION_NUMBER, DEFAULT_THREAD_NUMBER, addresses);
     }
 
-    public NettyAddressClient(InetSocketAddress[] socketAddress, int numberOfConnection) throws UnknownHostException, InterruptedException {
-        this(numberOfConnection, DEFAULT_THREAD_NUMBER, null, socketAddress);
-    }
-
-    public NettyAddressClient(InetSocketAddress[] socketAddress, int numberOfConnection, int numberOfThread) throws UnknownHostException, InterruptedException {
-        this(numberOfConnection, numberOfThread, null, socketAddress);
-    }
-
-    public NettyAddressClient(InetSocketAddress[] socketAddress, int numberOfConnection, int numberOfThread, ExecutorService threadPool) throws UnknownHostException, InterruptedException {
-        this(numberOfConnection, numberOfThread, threadPool, socketAddress);
-    }
-
-    private NettyAddressClient(int numberOfConnection, int numberOfThread, ExecutorService threadPool, InetSocketAddress... serverAddresses) throws InterruptedException, UnknownHostException {
+    public NettyAddressClient(int numberOfConnection, int numberOfThread, InetSocketAddress... serverAddresses) throws InterruptedException, UnknownHostException {
         assert serverAddresses != null;
         assert serverAddresses.length > 0;
+        assert numberOfConnection > 0;
         this.socketAddresses = Arrays.asList(serverAddresses);
         ReadWriteLock rwl = new ReentrantReadWriteLock();
         socketReadLock = rwl.readLock();
         socketWriteLock = rwl.writeLock();
         socketIndex = new AtomicInteger(0);
-        ExecutorService tp = threadPool;
-        boolean tpOwner = false;
-        if (tp == null) {
-            AtomicInteger counter = new AtomicInteger(0);
-            ThreadPoolExecutor tp1 = new ThreadPoolExecutor(numberOfThread, numberOfThread, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), runnable -> {
-                Thread thread = new Thread(runnable);
-                thread.setName(THREADPOOL_PREFIX + counter.incrementAndGet());
-                return thread;
-            });
-            tp1.prestartAllCoreThreads();
-            tp = tp1;
-            tpOwner = true;
-        }
 
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, run -> {
+            Thread thread = new Thread(run);
+            thread.setName("AsyncEventDelayerThread");
+            return thread;
+        });
+        scheduler.prestartAllCoreThreads();
+        this.delayer = scheduler;
+        final AtomicInteger counter = new AtomicInteger(0);
+        ExecutorService tp;
+        ThreadFactory tf = runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName(THREADPOOL_PREFIX + counter.incrementAndGet());
+            return thread;
+        };
+
+        if (numberOfThread > 0) {
+            tp = Executors.newFixedThreadPool(numberOfThread, tf);
+        } else {
+            tp = Executors.newCachedThreadPool(tf);
+        }
         this.threadPool = tp;
-        this.threadPoolOwner = tpOwner;
-        this.delayer = Executors.newScheduledThreadPool(1);
 
         poolMap = new AbstractChannelPoolMap<InetSocketAddress, FixedChannelPool>() {
             @Override
             protected FixedChannelPool newPool(InetSocketAddress key) {
-                workerGroup = new NioEventLoopGroup(numberOfThread, threadPool);
+                workerGroup = new NioEventLoopGroup(numberOfThread, tp);
 
                 final Bootstrap b = new Bootstrap();
                 b.group(workerGroup)
@@ -147,17 +137,11 @@ public class NettyAddressClient implements AddressClient {
             future.complete(Collections.emptyMap());
         }
         logger.debug("Parse address for {} addresses", requests.size());
-        UUID uuid = new UUID();
+        UUID uuid = UUID.randomUUID();
         logger.trace("AddressRequest id will be: {}", uuid);
-        AddressDataModelProtos.AddressRequest.Builder requestBuilder = AddressDataModelProtos.AddressRequest.newBuilder();
-        requestBuilder.setId(uuid.toString()).setType(AddressDataModelProtos.RequestType.PARSE);
 
-        requests.forEach((id, address) -> {
-            requestBuilder.addRequests(AddressDataModelProtos.AddressRequest.Request.newBuilder().setId(id).setAddress(address));
-        });
+        AddressDataModelProtos.AddressRequest request = generateAddressRequest(requests, uuid, AddressDataModelProtos.PARSE);
 
-        AddressDataModelProtos.AddressRequest request = requestBuilder.build();
-        logger.trace("Sending address request with id: {} to server.", request.getId());
         send(uuid, request, future);
         return f;
     }
@@ -171,16 +155,11 @@ public class NettyAddressClient implements AddressClient {
         if (requests.isEmpty()) {
             future.complete(Collections.emptyMap());
         }
-        UUID uuid = new UUID();
+        UUID uuid = UUID.randomUUID();
         logger.trace("AddressRequest id will be: {}", uuid);
-        AddressDataModelProtos.AddressRequest.Builder requestBuilder = AddressDataModelProtos.AddressRequest.newBuilder();
-        requestBuilder.setId(uuid.toString()).setType(AddressDataModelProtos.RequestType.NORMALIZE);
 
-        requests.forEach((id, address) -> {
-            requestBuilder.addRequests(AddressDataModelProtos.AddressRequest.Request.newBuilder().setId(id).setAddress(address));
-        });
+        AddressDataModelProtos.AddressRequest request = generateAddressRequest(requests, uuid, AddressDataModelProtos.NORMALIZE);
 
-        AddressDataModelProtos.AddressRequest request = requestBuilder.build();
         send(uuid, request, future);
         return f;
     }
@@ -189,16 +168,14 @@ public class NettyAddressClient implements AddressClient {
     public void close() {
         if (workerGroup != null) {
             try {
-                workerGroup.shutdownGracefully(0, 0, TimeUnit.SECONDS).await();
+                workerGroup.shutdownGracefully(0, 1, TimeUnit.SECONDS).await();
             } catch (InterruptedException e) {
                 logger.warn("Exception when waiting for event loop group down.", e);
             } finally {
                 workerGroup = null;
             }
         }
-        if (threadPool != null && threadPoolOwner) {
-            threadPool.shutdown();
-        }
+        threadPool.shutdown();
         delayer.shutdown();
     }
 
@@ -223,6 +200,7 @@ public class NettyAddressClient implements AddressClient {
     }
 
     private void send(final UUID uuid, final AddressDataModelProtos.AddressRequest request, CompletableFuture<? extends Map> future) {
+        logger.trace("Calling send request for uuid: {}", uuid);
         InetSocketAddress serverAddress = getNextSocketAddress();
 
         final FixedChannelPool pool = poolMap.get(serverAddress);
@@ -230,7 +208,7 @@ public class NettyAddressClient implements AddressClient {
         f.addListener(fu -> {
             Future<Channel> f1 = (Future<Channel>) fu;
             if (f1.isSuccess()) {
-                Channel ch = f1.getNow();
+                final Channel ch = f1.getNow();
                 ch.pipeline().get(NettyAddressHandler.class).addResponseFuture(ch.id(), uuid, future);
                 ch.writeAndFlush(request).addListener(f2 -> pool.release(((ChannelFuture) f2).channel()));
             } else {
@@ -240,25 +218,28 @@ public class NettyAddressClient implements AddressClient {
         });
     }
 
+    private AddressDataModelProtos.AddressRequest generateAddressRequest(Map<String, String> requests, UUID uuid, int operation) {
+        AddressDataModelProtos.AddressRequest request = new AddressDataModelProtos.AddressRequest();
+        request.id = UUIDHelper.toBytes(uuid);
+        request.type = AddressDataModelProtos.PARSE;
+
+        Collection<AddressDataModelProtos.AddressRequest.Request> rs = new ArrayList<>(requests.size());
+        requests.forEach((id, address) -> {
+            AddressDataModelProtos.AddressRequest.Request r = new AddressDataModelProtos.AddressRequest.Request();
+            r.id = id;
+            r.address = address;
+            rs.add(r);
+        });
+        request.requests = rs.toArray(new AddressDataModelProtos.AddressRequest.Request[rs.size()]);
+        return request;
+    }
+
     private void validateRequest(Map<String, String> requests) {
         if (requests == null) {
             throw new NullPointerException("Request cannot be null");
         }
         if (requests.size() > MAX_ADDRESSES_PER_REQUEST) {
             throw new LimitExceededException(MAX_ADDRESSES_PER_REQUEST, requests.size());
-        }
-    }
-
-    private void processExecutionException(ExecutionException e) {
-        Throwable cause = e.getCause();
-        if (cause != null) {
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
-            } else {
-                throw new AddressException(cause);
-            }
-        } else {
-            throw new AddressException(e);
         }
     }
 

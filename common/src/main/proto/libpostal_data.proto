@@ -13,7 +13,7 @@ message AddressRequest {
         required string id = 1;
         required string address = 2;
     }
-    required string id = 1;
+    required bytes id = 1;
     required RequestType type = 2;
     repeated Request requests = 3;
 }
@@ -27,7 +27,7 @@ message AddressResponse {
         required string id = 1;
         map<string, string> data = 2;
     }
-    required string id = 1;
+    required bytes id = 1;
     required RequestType type = 2;
     repeated NormalizeResponse normalizeResult = 3;
     repeated ParseResponse parseResult = 4;

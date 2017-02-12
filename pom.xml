@@ -1,13 +1,13 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
- 
+
     <groupId>org.gaofamily.libpostal</groupId>
     <artifactId>libpostal-parent</artifactId>
     <version>0.1</version>
     <packaging>pom</packaging>
     <name>Libpostal based address parser/normalizer java server and client</name>
- 
+
     <properties>
         <java.version>1.8</java.version>
         <slf4j.version>1.7.22</slf4j.version>
@@ -19,8 +19,8 @@
  
     <modules>
         <module>common</module>
-        <module>client</module>
         <module>server</module>
+        <module>client</module>
     </modules>
  
     <build>
