@@ -25,9 +25,9 @@ public class NettyAddressClientTest {
     private static final String host = "localhost";
     private static final int port = 8090;
 
-    @Test(groups = {"integration"})
+    @Test(groups = {"integration"}, priority = 0)
     public void testParsePositive() throws InterruptedException, UnknownHostException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 1)) {
             Map<String, String> requests = new HashMap<>(1);
             requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
             Future<Void> future = client.parseAddress(requests, result -> {
@@ -42,9 +42,9 @@ public class NettyAddressClientTest {
         }
     }
 
-    @Test(groups = {"integration"})
+    @Test(groups = {"integration"}, priority = 0)
     public void testNormalizePositive() throws InterruptedException, UnknownHostException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 1)) {
             Map<String, String> requests = new HashMap<>(1);
             requests.put("1", "900 Concar Dr, San Mateo, CA 94402 USA");
             Future<Void> future = client.normalizeAddress(requests, result -> {
@@ -58,9 +58,9 @@ public class NettyAddressClientTest {
         }
     }
 
-    @Test(groups = {"integration"})
+    @Test(groups = {"integration"}, priority = 200)
     public void testLargePack() throws UnknownHostException, InterruptedException, ExecutionException {
-        try (NettyAddressClient client = new NettyAddressClient(host, port, 5)) {
+        try (NettyAddressClient client = new NettyAddressClient(host, port, 1)) {
             Map<String, String> requests = new HashMap<>(20);
             for (int i = 0; i < 20; i++) {
                 requests.put(Integer.toString(i), "900 Concar Dr, San Mateo, CA 94402 USA");
@@ -73,7 +73,7 @@ public class NettyAddressClientTest {
         }
     }
 
-    @Test(groups = {"integration"})
+    @Test(groups = {"integration"}, priority = 100)
     public void testMultiThreadParse() throws InterruptedException, UnknownHostException {
         int number = 4;
         int numberOfWorker = 150;
