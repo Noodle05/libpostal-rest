@@ -65,7 +65,7 @@ public class NettyAddressClientTest {
             for (int i = 0; i < 20; i++) {
                 requests.put(Integer.toString(i), "900 Concar Dr, San Mateo, CA 94402 USA");
             }
-            Future<Void> future = client.normalizeAddress(requests, result -> Assert.assertNotNull(result), cause -> {
+            Future<Void> future = client.normalizeAddress(requests, result -> Assert.assertEquals(result.size(), 20), cause -> {
                 Assert.fail("Failed", cause);
                 return null;
             });
