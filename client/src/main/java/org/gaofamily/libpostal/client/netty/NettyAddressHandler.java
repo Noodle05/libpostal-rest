@@ -34,7 +34,7 @@ class NettyAddressHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
         try {
-            logger.trace("Get response: {}", msg);
+            logger.trace("Get response: {} from: {}", msg, ctx);
             ChannelId cid = ctx.channel().id();
             ConcurrentMap<UUID, CompletableFuture<? extends Map>> reps = responses.get(cid);
             if (reps != null) {

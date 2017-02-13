@@ -1,5 +1,6 @@
 package org.gaofamily.libpostal.server.netty;
 
+import io.netty.channel.Channel;
 import org.gaofamily.libpostal.server.AbstractServiceServer;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -74,13 +76,7 @@ public class NettyServer extends AbstractServiceServer {
                 .option(ChannelOption.ALLOCATOR.SO_BACKLOG, 128)
                 .childOption(ChannelOption.SO_KEEPALIVE, true);
 
-        try {
-            future = b.bind(port).sync();
-        } catch (InterruptedException e) {
-            logger.error("Cannot bind to port: {}", port, e);
-            throw new RuntimeException(e);
-        }
-        logger.info("TCP API server started.");
+        future = b.bind(port).addListener(fu -> logger.info("TCP API server started."));
     }
 
     @Override

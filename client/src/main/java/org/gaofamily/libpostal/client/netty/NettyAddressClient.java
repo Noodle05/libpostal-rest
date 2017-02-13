@@ -160,9 +160,11 @@ public class NettyAddressClient implements AddressClient {
     public void close() {
         logger.trace("Closing Netty Client object.");
         workerGroup.shutdownGracefully(0, 1, TimeUnit.SECONDS).addListener(fu -> {
+            logger.debug("Netty client closed.");
+            logger.debug("Shutting down thread pool.");
             threadPool.shutdown();
             delayer.shutdown();
-            logger.debug("Netty client closed.");
+            logger.debug("Thread pool down.");
         });
     }
 
@@ -191,6 +193,7 @@ public class NettyAddressClient implements AddressClient {
         try {
             logger.trace("Calling send request for uuid: {}", uuid);
             InetSocketAddress serverAddress = getNextSocketAddress();
+            logger.trace("Sending to: {}", serverAddress);
 
             final FixedChannelPool pool = poolMap.get(serverAddress);
             Future<Channel> f = pool.acquire();
